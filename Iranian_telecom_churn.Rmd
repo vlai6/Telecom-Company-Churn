@@ -1,0 +1,579 @@
+---
+title: "6414 Project"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+Customer Churn
+
+Group: 4, Section: A/MSA
+
+```{r}
+library(readxl)
+library(ggplot2)
+library(corrplot)
+library(pROC)
+library(car)
+churn_data= read.csv("Iranian_Churn.csv")
+
+churn_data <- churn_data[,!(names(churn_data) %in% c("Age"))]
+print(head(churn_data))
+```
+```{r}
+set.seed(111)  # Set a seed for reproducibility
+m=2000
+churn_data <- churn_data[sample(nrow(churn_data), m), ]
+```
+
+
+```{r}
+numeric_df <- churn_data[sapply(churn_data, is.numeric)]
+summary_stats <- summary(numeric_df)
+
+# Extract the required statistics for each variable
+total_obs <- sapply(numeric_df, function(x) length(na.omit(x)))
+mean_vals <- sapply(numeric_df, mean, na.rm = TRUE)
+std_vals <- sapply(numeric_df, sd, na.rm = TRUE)
+min_vals <- sapply(numeric_df, min, na.rm = TRUE)
+max_vals <- sapply(numeric_df, max, na.rm = TRUE)
+
+# Combine the results into a data frame
+summary_table <- data.frame(
+  Total_Obs = total_obs,
+  Mean = mean_vals,
+  Std_Dev = std_vals,
+  Min = min_vals,
+  Max = max_vals
+)
+
+# Print the summary table
+print(summary_table)
+```
+```{r}
+#numerical_data <- churn_data[, !(names(churn_data) %in% c("Age.Group", "Tariff.Plan", "Status","Complains"))]
+corr0 <- cor(churn_data)
+library(reshape2)
+ggplot(melt(corr0), aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  theme_minimal()
+```
+
+
+```{r}
+churn_data$Age.Group <- as.factor(churn_data$Age.Group)
+churn_data$Tariff.Plan <- as.factor(churn_data$Tariff.Plan)
+churn_data$Status <- as.factor(churn_data$Status)
+churn_data$Complains <- as.factor(churn_data$Complains)
+```
+
+
+```{r}
+categorical_variables <- c("Age.Group", "Tariff.Plan", "Status", "Charge..Amount","Complains")
+
+# Set up the plotting area
+par(mfrow = c(2, 2))
+
+# Loop through each categorical variable and create a stacked bar plot
+for (variable in categorical_variables) {
+  plot_title <- paste("Stacked Bar Plot of Churn by", variable)
+  
+  # Use print() to explicitly print each ggplot object
+  print(
+    ggplot(churn_data, aes(x = .data[[variable]], fill = factor(Churn))) +
+      geom_bar() +
+      labs(title = plot_title,
+           x = variable,
+           y = "Count",
+           fill = "Churn") +
+      theme_minimal()
+  )
+}
+
+par(mfrow = c(1, 1))
+```
+
+
+```{r}
+numerical_data <- churn_data[, !(names(churn_data) %in% c("Age.Group", "Tariff.Plan", "Status","Complains"))]
+corr <- cor(numerical_data)
+library(reshape2)
+ggplot(melt(corr), aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  theme_minimal()
+```
+
+
+```{r}
+num_col = names(numerical_data)
+#print(num_col)
+for (var in num_col) {
+  par(mfrow = c(1, 1))
+  
+  # Create a boxplot for the current numerical variable
+  boxplot(get(var) ~ Churn, main="", xlab="Churn", ylab=var,
+          col=c("Red","Blue"), data=churn_data)
+  
+  # Add a title for the boxplot
+  title(main = paste("Boxplot of", var, "by Churn"))
+}
+```
+```{r}
+library(caTools)
+set.seed(123)
+
+# Assuming df is your data frame
+# Split the data into training and testing sets
+split_index <- sample.split(churn_data$Churn, SplitRatio = 0.7)
+train_data <- subset(churn_data, split_index == TRUE)
+test_data <- subset(churn_data, split_index == FALSE)
+```
+```{r}
+full.model <- glm(Churn~.,family="binomial",data =train_data)
+summary(full.model)
+```
+
+
+```{r}
+
+vifs <- vif(full.model)
+print(vifs)
+```
+```{r}
+#Chisqr test
+dof = 2203-2188 #df of null deviance - df of residual deviance
+test_stat =(full.model$null.deviance - full.model$deviance)
+critical_deviance <- qchisq(1 - 0.05, dof)
+p_val=1-pchisq(test_stat,dof)
+print(c(test_stat,critical_deviance,p_val))
+#test > critical val & P-val ~0 so model is significant
+```
+```{r}
+#GOF
+deviance_value <- deviance(full.model)
+# Degrees of freedom for the chi-squared test
+df2 <- df.residual(full.model)
+critical_dev <- qchisq(1 - 0.05, df2)
+# Calculate the p-value using the chi-squared distribution
+p_val2 <- 1 - pchisq(deviance_value, df2)
+print(c(deviance_value,critical_dev,p_val2))
+#dev_value < criical dev & p-value > 0.05 so model is good fit via deviance test
+```
+```{r}
+pearson_resid <- residuals(full.model, type = "pearson")
+# Perform a chi-square goodness-of-fit test on Pearson residuals
+pearson_chi_square <- sum(pearson_resid^2)
+pearson_df <- df.residual(full.model)  # Degrees of freedom
+pearson_p_value <- 1 - pchisq(pearson_chi_square, df = pearson_df)
+print(c(pearson_chi_square,pearson_p_value))
+#p-value > 0.05 so model is good fit via pearson's test
+```
+
+
+```{r}
+churn_data$Avg.Talktime <- churn_data$Seconds.of.Use/churn_data$Frequency.of.use
+churn_data <- replace(churn_data, is.na(churn_data), 0)
+summary(churn_data$Avg.Talktime)
+```
+
+
+```{r}
+churn_data$call.failure.rate <- churn_data$Call..Failure/churn_data$Frequency.of.use
+churn_data <- replace(churn_data, is.na(churn_data), 0)
+summary(churn_data$call.failure.rate)
+```
+```{r}
+churn_data$avgcalls.per.Number <- churn_data$Frequency.of.use/churn_data$Distinct.Called.Numbers
+churn_data <- replace(churn_data, is.na(churn_data), 0)
+summary(churn_data$avgcalls.per.Number)
+```
+```{r}
+churn_data$avgusage.per.month <- churn_data$Seconds.of.Use/churn_data$Subscription..Length
+churn_data <- replace(churn_data, is.na(churn_data), 0)
+summary(churn_data$avgusage.per.month)
+```
+
+
+```{r}
+churn_data2 <- churn_data[,!(names(churn_data) %in% c("Seconds.of.Use","Customer.Value","Distinct.Called.Numbers","Age.Group"))]
+```
+```{r}
+numerical_data2 <- churn_data2[, !(names(churn_data2) %in% c("Age.Group", "Tariff.Plan", "Status","Complains"))]
+corr2 <- cor(numerical_data2)
+library(reshape2)
+ggplot(melt(corr2), aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+
+```{r}
+num_col = names(numerical_data2)
+#print(num_col)
+for (var in num_col) {
+  par(mfrow = c(1, 1))
+  
+  # Create a boxplot for the current numerical variable
+  boxplot(get(var) ~ Churn, main="", xlab="Churn", ylab=var,
+          col=c("Red","Blue"), data=churn_data)
+  
+  # Add a title for the boxplot
+  title(main = paste("Boxplot of", var, "by Churn"))
+}
+```
+
+
+```{r}
+boxplot(Charge..Amount ~ Tariff.Plan, main="", xlab="Plan", ylab="Charge..Amount",
+          col=c("Red","Blue"), data=churn_data)
+  
+  # Add a title for the boxplot
+  title(main = paste("Boxplot of", "Charge..Amount", "by plan"))
+```
+```{r}
+ggplot(churn_data, aes(x = Frequency.of.use , y = Charge..Amount, color = factor(Tariff.Plan))) +
+  geom_point() +
+  labs(title = "Scatter Plot with Legend",
+       x = "Usage",
+       y = "Charge",
+       color = "Plan type") +
+  scale_color_manual(values = c("blue", "red"))
+```
+
+
+```{r}
+#split_index <- sample.split(churn_data2$Churn, SplitRatio = 0.7)
+train_data2 <- subset(churn_data2, split_index == TRUE)
+test_data2 <- subset(churn_data2, split_index == FALSE)
+```
+
+
+```{r}
+full.model2 <- glm(Churn~.,family="binomial",data =train_data2)
+summary(full.model2)
+```
+
+
+```{r}
+vif2 <- vif(full.model2)
+print(vif2)
+#no multi-collinearity
+```
+```{r}
+#Chisqr test
+dof2 = 1399-1383 #df of null deviance - df of residual deviance
+test_stat =(full.model2$null.deviance - full.model2$deviance)
+critical_deviance <- qchisq(1 - 0.05, dof2)
+p_val=1-pchisq(test_stat,dof2)
+print(c(test_stat,critical_deviance,p_val))
+#test > critical val & P-val ~0 so model is significant
+```
+```{r}
+plot(full.model2)
+```
+
+
+```{r}
+#GOF
+deviance_value <- deviance(full.model2)
+# Degrees of freedom for the chi-squared test
+df2 <- df.residual(full.model2)
+critical_dev <- qchisq(1 - 0.05, df2)
+# Calculate the p-value using the chi-squared distribution
+p_val2 <- 1 - pchisq(deviance_value, df2)
+print(c(deviance_value,critical_dev,p_val2))
+#dev_value < criical dev & p-value > 0.05 so model is good fit via deviance test
+```
+
+
+```{r}
+pearson_resid <- residuals(full.model2, type = "pearson")
+# Perform a chi-square goodness-of-fit test on Pearson residuals
+pearson_chi_square <- sum(pearson_resid^2)
+pearson_df <- df.residual(full.model2)  # Degrees of freedom
+pearson_p_value <- 1 - pchisq(pearson_chi_square, df = pearson_df)
+print(c(pearson_chi_square,pearson_p_value))
+#p-value > 0.05 so model is good fit via pearson's test
+```
+```{r}
+#check for outliers, leverage points using cook's distance
+cooks_distance <- cooks.distance(full.model2)
+cook_threshold <- 4 / nrow(train_data2)
+outliers <- which(cooks_distance > cook_threshold)
+plot(cooks_distance, pch = 19, main = "Cook's Distance Plot", xlab = "Observation", ylab = "Cook's Distance")
+abline(h = cook_threshold, col = "red", lty = 2)
+text(outliers, cooks_distance[outliers], labels = outliers, col = "red", pos = 4)
+#there are 4 clear outliers > 0.0018
+```
+
+
+```{r}
+top_x_outlier <- 5
+influential <- as.numeric(names(sort(cooks_distance, decreasing = TRUE)[1:top_x_outlier]))
+#influential <- as.numeric(names(cooks_distance)[(cooks_distance > cook_threshold)])
+print(influential)
+print(train_data2[influential,])
+```
+```{r}
+train_no_outliers <- train_data2[-c(596,784,1301,1328),]
+full.model.no_outliers <- glm(Churn ~ ., data = train_no_outliers, family = "binomial")
+summary(full.model.no_outliers)
+```
+```{r}
+plot(full.model.no_outliers)
+```
+
+
+```{r}
+cooks_distance2 <- cooks.distance(full.model.no_outliers)
+cook_threshold2 <- 4 / nrow(train_no_outliers)
+outliers2 <- which(cooks_distance2 > cook_threshold2)
+plot(cooks_distance2, pch = 19, main = "Cook's Distance Plot", xlab = "Observation", ylab = "Cook's Distance")
+abline(h = cook_threshold2, col = "red", lty = 2)
+text(outliers2, cooks_distance2[outliers2], labels = outliers2, col = "red", pos = 4)
+#there are 4 clear outliers > 0.0018
+#same outliers as before(why?)
+```
+
+
+```{r}
+#step wise
+min.model <- glm(Churn~1,family="binomial",data =train_data2)
+step.model <- step(min.model, scope = list(lower = min.model, upper = full.model2),
+direction = "both", trace = FALSE)
+summary(step.model)
+```
+```{r}
+dof3 = 1399-1390 #df of null deviance - df of residual deviance
+test_stat =(step.model$null.deviance - step.model$deviance)
+critical_deviance <- qchisq(1 - 0.05, dof3)
+p_val=1-pchisq(test_stat,dof3)
+print(c(test_stat,critical_deviance,p_val))
+```
+
+
+```{r}
+#GOF
+deviance_value <- deviance(step.model)
+df2 <- df.residual(step.model)
+critical_dev <- qchisq(1 - 0.05, df2)
+p_val2 <- 1 - pchisq(deviance_value, df2)
+print(c(deviance_value,critical_dev,p_val2))
+```
+
+
+```{r}
+pearson_resid <- residuals(step.model, type = "pearson")
+pearson_chi_square <- sum(pearson_resid^2)
+pearson_df <- df.residual(step.model)  
+pearson_p_value <- 1 - pchisq(pearson_chi_square, df = pearson_df)
+print(c(pearson_chi_square,pearson_p_value))
+```
+
+
+```{r}
+predictions1 <- predict(full.model, newdata = test_data, type = "response")
+predictions2 <- predict(full.model2, newdata = test_data2, type = "response")
+predictions3 <- predict(full.model.no_outliers, newdata = test_data2, type = "response")
+predictions4 <- predict(step.model, newdata = test_data2, type = "response")
+```
+
+
+```{r}
+roc1 <- roc(test_data$Churn, predictions1)
+roc2 <- roc(test_data$Churn, predictions2)
+roc3 <- roc(test_data$Churn, predictions3)
+roc4 <- roc(test_data$Churn, predictions4)
+
+# Plot the first ROC curve
+plot(roc1, col = "blue", main = "ROC Curves", col.main = "black", lwd = 2, print.thres = "best")
+
+# Add the other ROC curves to the existing plot
+plot(roc2, add = TRUE, col = "red", lwd = 2)
+plot(roc3, add = TRUE, col = "green", lwd = 2)
+plot(roc4, add = TRUE, col = "purple", lwd = 2)
+
+# Add a legend to the plot
+legend("bottomright", legend = c("model1", "model2(no coll)", "model3(no outlier)", "model 4(setwise)"), col = c("blue", "red", "green", "purple"), lwd = 2)
+```
+
+
+
+
+
+```{r}
+t_range = seq(min(predictions4)+0.01, max(predictions4)-0.01, 0.01)
+recall = numeric(length(t_range))
+accuracy = numeric(length(t_range))
+```
+
+
+```{r}
+predictions_train <- predict(step.model, newdata = train_data2, type = "response")
+i=1
+for(t in t_range){
+  predicted_classes <- ifelse(predictions_train >= t, 1, 0)
+  confusion_matrix <- table(predicted_classes, train_data2$Churn)
+  TP <- confusion_matrix[2, 2]  # True Positives
+  TN <- confusion_matrix[1, 1]  # True Negatives
+  FP <- confusion_matrix[2, 1]  # False Positives
+  FN <- confusion_matrix[1, 2]  # False Negatives
+  recall[i] = TP/(TP+FN)
+  accuracy[i] = (TP+TN)/nrow(train_data2)
+  #print(c(t,recall[i],accuracy[i]))
+  i = i+1
+}
+```
+
+
+```{r}
+plot(t_range, recall, type = "l", 
+     xlab = "Threshold", ylab = "Acc/Rec",
+     main = "Cost & Acc vs. Threshold")
+
+par(new = TRUE)
+plot(
+  t_range, accuracy, type = "l", 
+  xlab = "", ylab = "",
+  ylim = c(0, 1),
+  col = "blue",axes = FALSE
+)
+
+axis(4, at = pretty(accuracy), labels = pretty(accuracy), col.axis = "blue")
+opt_t = 0.2
+abline(v = 0.2,col = "green")
+
+opt_t2 = 0.4
+abline(v = 0.4,col = "red")
+
+legend(
+  "bottomright",
+  legend = c("Total Recall", "Accuracy","T(Optimal)","T(Optimal2)"),
+  col = c("black", "blue","green","red"),
+  lty = 1,
+  cex = 0.8 
+)
+```
+
+
+```{r}
+predicted_classes1 <- ifelse(predictions4 >= opt_t, 1, 0)
+confusion_matrix1 <- table(predicted_classes1, test_data2$Churn)
+TP1 <- confusion_matrix1[2, 2]  # True Positives
+TN1 <- confusion_matrix1[1, 1]  # True Negatives
+FP1 <- confusion_matrix1[2, 1]  # False Positives
+FN1 <- confusion_matrix1[1, 2]  # False Negatives
+opt_rec = TP1/(TP1+FN1)
+opt_acc = (TP1+TN1)/nrow(test_data2)
+print(c(opt_t,opt_rec*100,opt_acc*100))
+```
+```{r}
+library(randomForest)
+library(randomForestSRC)
+set.seed(123)
+rf_model <- rfsrc(y ~ ., data = data.frame(X, y), ntree = 1000, nodesize = 5)
+print(rf_model)
+```
+
+
+
+```{r}
+forest_prob <- predict(rf_model, newdata = data.frame(x_test))
+
+```
+```{r}
+t_range = seq(min(rf_model$predicted)+0.01, max(rf_model$predicted)-0.01, 0.01)
+recall = numeric(length(t_range))
+accuracy = numeric(length(t_range))
+```
+
+
+```{r}
+i=1
+for(t in t_range){
+  predicted_classes <- ifelse(rf_model$predicted >= t, 1, 0)
+  confusion_matrix <- table(predicted_classes, train_data$Churn)
+  TP <- confusion_matrix[2, 2]  # True Positives
+  TN <- confusion_matrix[1, 1]  # True Negatives
+  FP <- confusion_matrix[2, 1]  # False Positives
+  FN <- confusion_matrix[1, 2]  # False Negatives
+  recall[i] = TP/(TP+FN)
+  accuracy[i] = (TP+TN)/nrow(train_data)
+  #print(c(t,recall[i],accuracy[i]))
+  i = i+1
+}
+```
+
+
+```{r}
+plot(t_range, recall, type = "l", 
+     xlab = "Threshold", ylab = "Total Cost",
+     main = "Cost & Acc vs. Threshold")
+
+par(new = TRUE)
+plot(
+  t_range, accuracy, type = "l", 
+  xlab = "", ylab = "",
+  ylim = c(0, 1),
+  col = "blue",axes = FALSE
+)
+
+axis(4, at = pretty(accuracy), labels = pretty(accuracy), col.axis = "blue")
+opt_t = 0.32
+abline(v = 0.32,col = "green")
+
+opt_t2 = 0.4
+abline(v = 0.4,col = "red")
+
+legend(
+  "bottomright",
+  legend = c("Total Recall", "Accuracy","T(Optimal)","T(Optimal2)"),
+  col = c("black", "blue","green","red"),
+  lty = 1,
+  cex = 0.8 
+)
+```
+
+```{r}
+predictions7 <- rep(0,nrow(test_data))
+predictions7[forest_prob$predicted>.32] <- 1
+#confusion matrix
+rf_conf = table(pred=predictions7,true=test_data$Churn)
+rf_conf
+```
+
+```{r}
+roc1 <- roc(test_data$Churn, predictions1)
+roc2 <- roc(test_data$Churn, predictions2)
+roc3 <- roc(test_data$Churn, predictions3)
+roc4 <- roc(test_data$Churn, predictions4)
+roc5 <- roc(test_data$Churn, lasso_prob)
+roc7 <- roc(test_data$Churn, forest_prob$predicted)
+
+# Plot the first ROC curve
+plot(roc1, col = "blue", main = "ROC Curves", col.main = "black", lwd = 2, print.thres = "best")
+
+# Add the other ROC curves to the existing plot
+plot(roc2, add = TRUE, col = "red", lwd = 2)
+plot(roc3, add = TRUE, col = "green", lwd = 2)
+plot(roc4, add = TRUE, col = "purple", lwd = 2)
+plot(roc5, add = TRUE, col = "orange", lwd = 2)
+plot(roc7, add = TRUE, col = "pink", lwd = 2)
+
+# Add a legend to the plot
+legend("bottomright", legend = c("model1", "model2(no coll)", "model3(no outlier)", "model 4(setwise)","model5(lasso)", "model6(random forest"), col = c("blue", "red", "green", "purple","orange", "pink"), lwd = 2)
+```
+
+```{r}
+TP1 <- rf_conf[2, 2]  # True Positives
+TN1 <- rf_conf[1, 1]  # True Negatives
+FP1 <- rf_conf[2, 1]  # False Positives
+FN1 <- rf_conf[1, 2]  # False Negatives
+opt_rec = TP1/(TP1+FN1)
+opt_acc = (TP1+TN1)/nrow(test_data)
+print(c(opt_t,opt_rec*100,opt_acc*100))
+```
